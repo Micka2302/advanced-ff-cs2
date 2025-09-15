@@ -140,13 +140,17 @@ namespace AdvancedFriendlyFire
             var victim = hook.GetParam<CEntityInstance>(0);
             var idmg = hook.GetParam<CTakeDamageInfo>(1);
 
-            
+            if (victim == null || victim.DesignerName != "player") return HookResult.Continue;
 
-            if (victim.DesignerName != "player") return HookResult.Continue;
+            if (idmg == null || idmg.Attacker == null || !idmg.Attacker.IsValid) return HookResult.Continue;
 
-            var attacker = new CCSPlayerPawn(idmg.Attacker.Value.Handle);
+            var attackerEntity = idmg.Attacker.Value;
+
+            if (attackerEntity == null || attackerEntity.DesignerName != "player") return HookResult.Continue;
+
+            var attacker = new CCSPlayerPawn(attackerEntity.Handle);
             var victimPlayer = new CCSPlayerController(victim.Handle);
-            var attackerController = new CCSPlayerController(idmg.Attacker.Value.Handle);
+            var attackerController = new CCSPlayerController(attackerEntity.Handle);
 
             if (attacker.TeamNum != victimPlayer.TeamNum || attacker == victimPlayer) return HookResult.Continue;
 
