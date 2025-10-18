@@ -97,32 +97,27 @@ namespace AdvancedFriendlyFire
 
         private HookResult OnPlayerHurt(EventPlayerHurt eventInfo, GameEventInfo info)
         {
-            if (eventInfo == null)
+            if (eventInfo is not { } hurtEvent)
             {
                 Console.WriteLine("eventInfo is null, skipping...");
                 return HookResult.Continue;
             }
 
-            var attacker = eventInfo?.Attacker;
-            var victim = eventInfo?.Userid;
+            var attacker = hurtEvent.Attacker;
+            var victim = hurtEvent.Userid;
 
             if (attacker == null && victim == null)
             {
                 return HookResult.Continue;
             }
 
-            if (attacker != null)
+            if (attacker is { } attackerController && attackerController != victim)
             {
-                ulong attackerSteamId = attacker.SteamID;
+                ulong attackerSteamId = attackerController.SteamID;
+                var damageTaken = hurtEvent.DmgHealth;
+                string attackerName = attackerController.PlayerName ?? string.Empty;
 
-                if (attacker != victim)
-                {
-                    var damageTaken = eventInfo.DmgHealth;
-
-                    string attackerName = attacker.PlayerName;  // Safe to access after null check
-
-                    tempDamageTracker[attackerSteamId] = (damageTaken, attackerName);
-                }
+                tempDamageTracker[attackerSteamId] = (damageTaken, attackerName);
             }
 
 
