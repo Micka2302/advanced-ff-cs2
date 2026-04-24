@@ -1,4 +1,4 @@
-# Advanced Friendly Fire [Extracted from Argentum Suite]
+# Advanced Friendly Fire 
 - Enable damage inflictors for friendly fire
 - Revamp of [CS2 - Damage Management](https://github.com/hoan111/CS2-DamageManagement)
 
@@ -7,12 +7,18 @@
 
 ![image](https://github.com/user-attachments/assets/fbd0632d-283a-4204-a763-89bb927e4624)
 > [!WARNING]
-> As with the latest update, [Advanced Friendly Fire v1.1], which introduces the punishment features, has only been minimally tested (primarily with bots), and the code is a total mess, but will be fixed soon. Please report any bugs you encounter in the [issues](https://github.com/phara1/advanced-ff-cs2/issues) section
+> Trippp is gay
 
 # Requirements
 > [CounterStrikeSharp](https://docs.cssharp.dev/) installed.
 
 > mp_friendlyfire 1
+# Recommended Settings:
+> mp_friendlyfire 1  \
+> ff_damage_reduction_bullets 0.33  \
+> ff_damage_reduction_grenade 0.85  \
+> ff_damage_reduction_grenade_self 1  \
+> ff_damage_reduction_other 0.4
 
 # Features
 - Manage Friendly Fire Damage Inflictors
@@ -43,6 +49,8 @@
 {
   "Enable/Disable Advanced Friendly Fire": true,
   "Enable/Disable Punishments": true,
+  "Enforce Only Configured Damage Inflictors": true,
+  "Punishment Delay (Seconds)": 2,
   "Damage Inflictors": [
     "inferno",
     "hegrenade_projectile",
@@ -51,15 +59,15 @@
     "decoy_projectile",
     "planted_c4"
   ],
-  "Warning #1 Required Team Damage (HP Metrics)": 100, 
-  "Warning #1 Chat message": "Avoid friendly fire, or you will be punished! Friendly fire warning [1/3]",
-  "Warning #1 Punishment": "css_slay {Player}",
+  "Warning #1 Required Team Damage (HP Metrics)": 100,
+  "Warning #1 Chat message": "Avoid friendly fire! Warning [1/3]",
+  "Warning #1 Punishment": "css_slay {Player} \u0022Friendly fire warning [1/3]\u0022",
   "Warning #2 Required Team Damage (HP Metrics)": 200,
-  "Warning #2 Chat message": "You have been kicked for dealing excessive damage to your teammates!",
-  "Warning #2 Punishment": "css_kick {Player} \"Friendly fire warning [2/3]\"",
+  "Warning #2 Chat message": "You have been kicked for excessive team damage!",
+  "Warning #2 Punishment": "css_kick {Player} \u0022Friendly fire warning [2/3]\u0022",
   "Warning #3 Required Team Damage (HP Metrics)": 300,
-  "Warning #3 Chat message": "You have been banned for dealing excessive damage to your teammates!",
-  "Warning #3 Punishment": "css_ban {Player} 30 \"Friendly fire warning [3/3]\"",
+  "Warning #3 Chat message": "You have been banned for excessive team damage!",
+  "Warning #3 Punishment": "css_ban {Player} 30 \u0022Friendly fire warning [3/3]\u0022",
   "ConfigVersion": 1
 }
 ```

@@ -1,18 +1,28 @@
-using System;
-using System.Text.Json.Serialization;
 using CounterStrikeSharp.API;
 using CounterStrikeSharp.API.Core;
-using CounterStrikeSharp.API.Core.Attributes;
+using CounterStrikeSharp.API.Core.Attributes.Registration;
+using CounterStrikeSharp.API.Modules.Entities;
+using CounterStrikeSharp.API.Modules.Memory;
+using CounterStrikeSharp.API.Modules.Memory.DynamicFunctions;
+using System;
+using System.Collections.Generic;
+using System.Text.Json.Serialization;
 
 namespace AdvancedFriendlyFire
-{ 
+{
     public class AdvancedFriendlyFireConfig : BasePluginConfig
     {
         [JsonPropertyName("Enable/Disable Advanced Friendly Fire")]
-        public bool IsAdvancedFriendlyFireEnabled { get; set; } = true;
+        public bool IsEnabled { get; set; } = true;
 
         [JsonPropertyName("Enable/Disable Punishments")]
-        public bool ArePunishmentsEnabled { get; set; } = true;
+        public bool PunishmentsEnabled { get; set; } = true;
+
+        [JsonPropertyName("Enforce Only Configured Damage Inflictors")]
+        public bool EnforceDamageSources { get; set; } = true;
+
+        [JsonPropertyName("Punishment Delay (Seconds)")]
+        public int PunishmentDelay { get; set; } = 2;
 
         [JsonPropertyName("Damage Inflictors")]
         public string[] DamageInflictors { get; set; } =
@@ -26,235 +36,155 @@ namespace AdvancedFriendlyFire
         };
 
         [JsonPropertyName("Warning #1 Required Team Damage (HP Metrics)")]
-        public int Warn1 { get; set; } = 100;
-
+        public int Warning1Threshold { get; set; } = 100;
         [JsonPropertyName("Warning #1 Chat message")]
-        public string chatWarn1 { get; set; } = "Avoid friendly fire, or you will be punished! Friendly fire warning [1/3]";
-
+        public string Warning1Message { get; set; } = "Avoid friendly fire! Warning [1/3]";
         [JsonPropertyName("Warning #1 Punishment")]
-        public string punishWarn1 { get; set; } = "css_slay {Player} \"Friendly fire warning [1/3]\"";
+        public string Warning1Punishment { get; set; } = "css_slay {Player} \"Friendly fire warning [1/3]\"";
 
         [JsonPropertyName("Warning #2 Required Team Damage (HP Metrics)")]
-        public int Warn2 { get; set; } = 200;
-
+        public int Warning2Threshold { get; set; } = 200;
         [JsonPropertyName("Warning #2 Chat message")]
-        public string chatWarn2 { get; set; } = "You have been kicked for dealing excessive damage to your teammates!";
-
+        public string Warning2Message { get; set; } = "You have been kicked for excessive team damage!";
         [JsonPropertyName("Warning #2 Punishment")]
-        public string punishWarn2 { get; set; } = "css_kick {Player} \"Friendly fire warning [2/3]\"";
+        public string Warning2Punishment { get; set; } = "css_kick {Player} \"Friendly fire warning [2/3]\"";
 
         [JsonPropertyName("Warning #3 Required Team Damage (HP Metrics)")]
-        public int Warn3 { get; set; } = 300;
-
+        public int Warning3Threshold { get; set; } = 300;
         [JsonPropertyName("Warning #3 Chat message")]
-        public string chatWarn3 { get; set; } = "You have been banned for dealing excessive damage to your teammates!";
-
+        public string Warning3Message { get; set; } = "You have been banned for excessive team damage!";
         [JsonPropertyName("Warning #3 Punishment")]
-        public string punishWarn3 { get; set; } = "css_ban {Player} 30 \"Friendly fire warning [3/3]\"";
+        public string Warning3Punishment { get; set; } = "css_ban {Player} 30 \"Friendly fire warning [3/3]\"";
     }
 
-    [MinimumApiVersion(367)]
     public class AdvancedFriendlyFire : BasePlugin, IPluginConfig<AdvancedFriendlyFireConfig>
     {
-        public override string ModuleName => "Advanced Friendly Fire [Extracted from Argentum Suite]";
+        public override string ModuleName => "Advanced Friendly Fire";
         public override string ModuleVersion => "1.1.5";
-        public override string ModuleAuthor => "phara1";
+        public override string ModuleAuthor => "keno";
         public override string ModuleDescription => "https://steamcommunity.com/id/kenoxyd";
 
         public required AdvancedFriendlyFireConfig Config { get; set; }
-        public void OnConfigParsed(AdvancedFriendlyFireConfig config)
-        {
-            Config = config;
-        }
+        public void OnConfigParsed(AdvancedFriendlyFireConfig config) => Config = config;
+
+        private readonly Dictionary<ulong, (float Damage, int Level)> playerStats = new();
+
+        private readonly string PREFIX = " \x04 AdvancedFF » \x01";
 
         public override void Load(bool hotReload)
         {
-            RegisterListener<Listeners.OnEntityTakeDamagePre>(OnAdvancedFriendlyFireHook);
-
+            VirtualFunctions.CBaseEntity_TakeDamageOldFunc.Hook(OnFriendlyFireHook, HookMode.Pre);
             RegisterEventHandler<EventPlayerHurt>(OnPlayerHurt);
 
-            if (Config.IsAdvancedFriendlyFireEnabled)
+            if (Config.IsEnabled)
             {
-                Server.ExecuteCommand("mp_friendlyfire 1");
-                Server.ExecuteCommand("ff_damage_reduction_bullets 0.0");
-                Server.ExecuteCommand("ff_damage_reduction_grenade 0.85");
-                Server.ExecuteCommand("ff_damage_reduction_grenade_self 1");
-                Server.ExecuteCommand("ff_damage_reduction_other 0.4");
-            }
+                string[] commands =
+                {
+                    "mp_friendlyfire 1",
+                    "ff_damage_reduction_bullets 0.33",
+                    "ff_damage_reduction_grenade 0.85",
+                    "ff_damage_reduction_grenade_self 1",
+                    "ff_damage_reduction_other 0.4"
+                };
 
+                foreach (var cmd in commands)
+                    Server.ExecuteCommand(cmd);
+            }
         }
 
         public override void Unload(bool hotReload)
         {
-            RemoveListener<Listeners.OnEntityTakeDamagePre>(OnAdvancedFriendlyFireHook);
+            VirtualFunctions.CBaseEntity_TakeDamageOldFunc.Unhook(OnFriendlyFireHook, HookMode.Pre);
         }
 
-        private Dictionary<ulong, (float damage, string attackerName)> tempDamageTracker = new Dictionary<ulong, (float, string)>();
-        private Dictionary<ulong, float> teamDamageTracker = new Dictionary<ulong, float>();
-        private Dictionary<ulong, int> punishmentLevelTracker = new Dictionary<ulong, int>();
-
-        private HookResult OnPlayerHurt(EventPlayerHurt eventInfo, GameEventInfo info)
+        private HookResult OnPlayerHurt(EventPlayerHurt e, GameEventInfo info)
         {
-            if (eventInfo is not { } hurtEvent)
-            {
-                Console.WriteLine("eventInfo is null, skipping...");
+            if (!Config.IsEnabled || e?.Attacker == null || e.Userid == null || e.Attacker == e.Userid)
                 return HookResult.Continue;
-            }
 
-            var attacker = hurtEvent.Attacker;
-            var victim = hurtEvent.Userid;
-
-            if (attacker == null && victim == null)
-            {
+            if (e.Attacker.TeamNum != e.Userid.TeamNum)
                 return HookResult.Continue;
-            }
 
-            if (attacker is { } attackerController && attackerController != victim)
+            ulong attackerId = e.Attacker.SteamID;
+            string attackerName = e.Attacker.PlayerName ?? $"SteamID:{attackerId}";
+            float damageTaken = e.DmgHealth;
+
+            if (!playerStats.TryGetValue(attackerId, out var stats))
+                stats = (0f, 0);
+
+            float newDamage = stats.Damage + damageTaken;
+            int level = stats.Level;
+
+            if (Config.PunishmentsEnabled)
             {
-                ulong attackerSteamId = attackerController.SteamID;
-                var damageTaken = hurtEvent.DmgHealth;
-                string attackerName = attackerController.PlayerName ?? string.Empty;
-
-                tempDamageTracker[attackerSteamId] = (damageTaken, attackerName);
+                if (newDamage >= Config.Warning3Threshold && level < 3)
+                    ApplyPunishment(e.Attacker, attackerName, Config.Warning3Message, Config.Warning3Punishment, attackerId, 3, reset: true);
+                else if (newDamage >= Config.Warning2Threshold && level < 2)
+                    ApplyPunishment(e.Attacker, attackerName, Config.Warning2Message, Config.Warning2Punishment, attackerId, 2);
+                else if (newDamage >= Config.Warning1Threshold && level < 1)
+                    ApplyPunishment(e.Attacker, attackerName, Config.Warning1Message, Config.Warning1Punishment, attackerId, 1);
+                else
+                    playerStats[attackerId] = (newDamage, level);
             }
-
+            else
+            {
+                playerStats[attackerId] = (newDamage, level);
+            }
 
             return HookResult.Continue;
         }
 
-
-        private HookResult OnAdvancedFriendlyFireHook(CBaseEntity victimEntity, CTakeDamageInfo damageInfo)
+        private HookResult OnFriendlyFireHook(DynamicHook hook)
         {
-            if (!Config.IsAdvancedFriendlyFireEnabled)
-            {
-                return HookResult.Continue;
-            }
+            if (!Config.IsEnabled) return HookResult.Continue;
 
-            if (!string.Equals(victimEntity.DesignerName, "player", StringComparison.OrdinalIgnoreCase))
-            {
-                return HookResult.Continue;
-            }
+            var victimEntity = hook.GetParam<CEntityInstance>(0);
+            var damageInfo = hook.GetParam<CTakeDamageInfo>(1);
 
-            var attackerHandle = damageInfo.Attacker;
-            if (attackerHandle == null || !attackerHandle.IsValid)
-            {
+            if (victimEntity?.DesignerName != "player" || damageInfo?.Attacker?.Value == null)
                 return HookResult.Continue;
-            }
 
-            var attackerEntity = attackerHandle.Value;
-            if (attackerEntity == null)
-            {
-                return HookResult.Continue;
-            }
-
+            var attackerPawn = new CCSPlayerPawn(damageInfo.Attacker.Value.Handle);
             var victimPawn = new CCSPlayerPawn(victimEntity.Handle);
-            var attackerPawn = new CCSPlayerPawn(attackerEntity.Handle);
 
-            var victimControllerHandle = victimPawn.Controller;
-            var attackerControllerHandle = attackerPawn.Controller;
+            var attackerController = attackerPawn.Controller.Value != null
+                ? new CCSPlayerController(attackerPawn.Controller.Value.Handle)
+                : null;
+            var victimController = victimPawn.Controller.Value != null
+                ? new CCSPlayerController(victimPawn.Controller.Value.Handle)
+                : null;
 
-            if (!victimControllerHandle.IsValid || !attackerControllerHandle.IsValid)
-            {
+            if (attackerController == null || victimController == null)
                 return HookResult.Continue;
-            }
 
-            var victimControllerBase = victimControllerHandle.Value;
-            var attackerControllerBase = attackerControllerHandle.Value;
-
-            if (victimControllerBase == null || attackerControllerBase == null)
-            {
+            if (attackerPawn.TeamNum != victimPawn.TeamNum || attackerController == victimController)
                 return HookResult.Continue;
-            }
 
-            var victimController = new CCSPlayerController(victimControllerBase.Handle);
-            var attackerController = new CCSPlayerController(attackerControllerBase.Handle);
-
-            if (attackerController.TeamNum != victimController.TeamNum ||
-                attackerController.SteamID == victimController.SteamID)
-            {
-                return HookResult.Continue;
-            }
-
-            var inflictorName = damageInfo.Inflictor.Value?.DesignerName ?? string.Empty;
-            if (!Config.DamageInflictors.Contains(inflictorName))
-            {
-                return HookResult.Continue;
-            }
+            string inflictorName = damageInfo.Inflictor?.Value?.DesignerName ?? "";
+            if (Config.EnforceDamageSources && !Config.DamageInflictors.Contains(inflictorName))
+                return HookResult.Handled;
 
             attackerController.PrintToCenterAlert("DON'T HURT YOUR TEAMMATES!");
-
-            if (!Config.ArePunishmentsEnabled)
-            {
-                return HookResult.Continue;
-            }
-
-            var attackerSteamId = attackerController.SteamID;
-
-            if (!tempDamageTracker.TryGetValue(attackerSteamId, out var attackerInfo))
-            {
-                attackerInfo = (damageInfo.Damage, attackerController.PlayerName);
-            }
-
-            var damageAmount = attackerInfo.damage > 0 ? attackerInfo.damage : damageInfo.Damage;
-            var attackerName = string.IsNullOrWhiteSpace(attackerInfo.attackerName)
-                ? attackerController.PlayerName
-                : attackerInfo.attackerName;
-
-            if (!teamDamageTracker.TryGetValue(attackerSteamId, out float totalDamage))
-            {
-                totalDamage = 0;
-            }
-
-            totalDamage += damageAmount;
-            teamDamageTracker[attackerSteamId] = totalDamage;
-
-            if (!punishmentLevelTracker.TryGetValue(attackerSteamId, out int punishmentLevel))
-            {
-                punishmentLevel = 0;
-            }
-
-            if (totalDamage >= Config.Warn1 && punishmentLevel < 1)
-            {
-                attackerController.PrintToChat(Config.chatWarn1);
-
-                var commandToExecute = Config.punishWarn1;
-
-                if (commandToExecute.Contains("{Player}", StringComparison.Ordinal))
-                {
-                    Server.ExecuteCommand(commandToExecute.Replace("{Player}", attackerName, StringComparison.Ordinal));
-                }
-
-                punishmentLevelTracker[attackerSteamId] = 1;
-            }
-            else if (totalDamage >= Config.Warn2 && punishmentLevel < 2)
-            {
-                attackerController.PrintToChat(Config.chatWarn2);
-
-                var commandToExecute = Config.punishWarn2;
-
-                if (commandToExecute.Contains("{Player}", StringComparison.Ordinal))
-                {
-                    Server.ExecuteCommand(commandToExecute.Replace("{Player}", attackerName, StringComparison.Ordinal));
-                }
-
-                punishmentLevelTracker[attackerSteamId] = 2;
-            }
-            else if (totalDamage >= Config.Warn3 && punishmentLevel < 3)
-            {
-                attackerController.PrintToChat(Config.chatWarn3);
-
-                var commandToExecute = Config.punishWarn3;
-
-                if (commandToExecute.Contains("{Player}", StringComparison.Ordinal))
-                {
-                    Server.ExecuteCommand(commandToExecute.Replace("{Player}", attackerName, StringComparison.Ordinal));
-                }
-
-                teamDamageTracker[attackerSteamId] = 0;
-                punishmentLevelTracker[attackerSteamId] = 0;
-            }
-
             return HookResult.Continue;
+        }
+
+        private void ApplyPunishment(CCSPlayerController attacker, string attackerName, string message, string command, ulong attackerId, int newLevel, bool reset = false)
+        {
+            attacker.PrintToChat($" {PREFIX} " + message);
+            Server.PrintToChatAll($" {PREFIX}\x0A{attackerName} \x01has been punished for Friendly Fire [ {newLevel}/3 ].");
+            Console.WriteLine($"[FriendlyFire] Applied punishment level {newLevel} to {attackerName}: {command}");
+
+            if (reset)
+                playerStats[attackerId] = (0f, 0);
+            else
+                playerStats[attackerId] = (playerStats[attackerId].Damage, newLevel);
+
+            if (Config.PunishmentDelay > 0)
+                AddTimer(Config.PunishmentDelay, () =>
+                    Server.ExecuteCommand(command.Replace("{Player}", $"\"{attackerName}\""))
+                );
+            else
+                Server.ExecuteCommand(command.Replace("{Player}", $"\"{attackerName}\""));
         }
 
     }
