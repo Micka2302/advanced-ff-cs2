@@ -3,8 +3,6 @@ using System.Text.Json.Serialization;
 using CounterStrikeSharp.API;
 using CounterStrikeSharp.API.Core;
 using CounterStrikeSharp.API.Core.Attributes;
-using CounterStrikeSharp.API.Modules.Memory.DynamicFunctions;
-using CounterStrikeSharp.API.Modules.Memory;
 
 namespace AdvancedFriendlyFire
 { 
@@ -55,7 +53,7 @@ namespace AdvancedFriendlyFire
         public string punishWarn3 { get; set; } = "css_ban {Player} 30 \"Friendly fire warning [3/3]\"";
     }
 
-    [MinimumApiVersion(342)]
+    [MinimumApiVersion(367)]
     public class AdvancedFriendlyFire : BasePlugin, IPluginConfig<AdvancedFriendlyFireConfig>
     {
         public override string ModuleName => "Advanced Friendly Fire [Extracted from Argentum Suite]";
@@ -71,7 +69,7 @@ namespace AdvancedFriendlyFire
 
         public override void Load(bool hotReload)
         {
-            VirtualFunctions.CBaseEntity_TakeDamageOldFunc.Hook(OnAdvancedFriendlyFireHook, HookMode.Pre);
+            RegisterListener<Listeners.OnEntityTakeDamagePre>(OnAdvancedFriendlyFireHook);
 
             RegisterEventHandler<EventPlayerHurt>(OnPlayerHurt);
 
@@ -88,7 +86,7 @@ namespace AdvancedFriendlyFire
 
         public override void Unload(bool hotReload)
         {
-            VirtualFunctions.CBaseEntity_TakeDamageOldFunc.Unhook(OnAdvancedFriendlyFireHook, HookMode.Pre);
+            RemoveListener<Listeners.OnEntityTakeDamagePre>(OnAdvancedFriendlyFireHook);
         }
 
         private Dictionary<ulong, (float damage, string attackerName)> tempDamageTracker = new Dictionary<ulong, (float, string)>();
@@ -125,17 +123,9 @@ namespace AdvancedFriendlyFire
         }
 
 
-        private HookResult OnAdvancedFriendlyFireHook(DynamicHook hook)
+        private HookResult OnAdvancedFriendlyFireHook(CBaseEntity victimEntity, CTakeDamageInfo damageInfo)
         {
             if (!Config.IsAdvancedFriendlyFireEnabled)
-            {
-                return HookResult.Continue;
-            }
-
-            var victimEntity = hook.GetParam<CEntityInstance>(0);
-            var damageInfo = hook.GetParam<CTakeDamageInfo>(1);
-
-            if (victimEntity == null || damageInfo == null)
             {
                 return HookResult.Continue;
             }
