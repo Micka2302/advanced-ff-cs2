@@ -10,7 +10,7 @@
 > Trippp is gay
 
 # Requirements
-> [CounterStrikeSharp](https://docs.cssharp.dev/) installed.
+> [CounterStrikeSharp](https://docs.cssharp.dev/) 1.0.371 or newer installed.
 
 > mp_friendlyfire 1
 # Recommended Settings:

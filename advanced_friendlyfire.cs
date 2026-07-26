@@ -1,9 +1,7 @@
 using CounterStrikeSharp.API;
 using CounterStrikeSharp.API.Core;
+using CounterStrikeSharp.API.Core.Attributes;
 using CounterStrikeSharp.API.Core.Attributes.Registration;
-using CounterStrikeSharp.API.Modules.Entities;
-using CounterStrikeSharp.API.Modules.Memory;
-using CounterStrikeSharp.API.Modules.Memory.DynamicFunctions;
 using System;
 using System.Collections.Generic;
 using System.Text.Json.Serialization;
@@ -57,10 +55,11 @@ namespace AdvancedFriendlyFire
         public string Warning3Punishment { get; set; } = "css_ban {Player} 30 \"Friendly fire warning [3/3]\"";
     }
 
+    [MinimumApiVersion(371)]
     public class AdvancedFriendlyFire : BasePlugin, IPluginConfig<AdvancedFriendlyFireConfig>
     {
         public override string ModuleName => "Advanced Friendly Fire";
-        public override string ModuleVersion => "1.1.5";
+        public override string ModuleVersion => "1.1.6";
         public override string ModuleAuthor => "keno";
         public override string ModuleDescription => "https://steamcommunity.com/id/kenoxyd";
 
@@ -73,7 +72,7 @@ namespace AdvancedFriendlyFire
 
         public override void Load(bool hotReload)
         {
-            VirtualFunctions.CBaseEntity_TakeDamageOldFunc.Hook(OnFriendlyFireHook, HookMode.Pre);
+            RegisterListener<Listeners.OnEntityTakeDamagePre>(OnFriendlyFireHook);
             RegisterEventHandler<EventPlayerHurt>(OnPlayerHurt);
 
             if (Config.IsEnabled)
@@ -94,7 +93,7 @@ namespace AdvancedFriendlyFire
 
         public override void Unload(bool hotReload)
         {
-            VirtualFunctions.CBaseEntity_TakeDamageOldFunc.Unhook(OnFriendlyFireHook, HookMode.Pre);
+            RemoveListener<Listeners.OnEntityTakeDamagePre>(OnFriendlyFireHook);
         }
 
         private HookResult OnPlayerHurt(EventPlayerHurt e, GameEventInfo info)
@@ -134,30 +133,35 @@ namespace AdvancedFriendlyFire
             return HookResult.Continue;
         }
 
-        private HookResult OnFriendlyFireHook(DynamicHook hook)
+        private HookResult OnFriendlyFireHook(CBaseEntity victimEntity, CTakeDamageInfo damageInfo)
         {
             if (!Config.IsEnabled) return HookResult.Continue;
 
-            var victimEntity = hook.GetParam<CEntityInstance>(0);
-            var damageInfo = hook.GetParam<CTakeDamageInfo>(1);
-
-            if (victimEntity?.DesignerName != "player" || damageInfo?.Attacker?.Value == null)
+            if (!string.Equals(victimEntity.DesignerName, "player", StringComparison.OrdinalIgnoreCase))
                 return HookResult.Continue;
 
-            var attackerPawn = new CCSPlayerPawn(damageInfo.Attacker.Value.Handle);
+            var attackerEntity = damageInfo.Attacker.Value;
+
+            // The new map-driven C4 shockwave can report a non-player damage source.
+            // Never reinterpret environmental entities as player pawns: only actual
+            // player-vs-player damage belongs to the friendly-fire filter.
+            if (attackerEntity == null ||
+                !string.Equals(attackerEntity.DesignerName, "player", StringComparison.OrdinalIgnoreCase))
+                return HookResult.Continue;
+
+            var attackerPawn = new CCSPlayerPawn(attackerEntity.Handle);
             var victimPawn = new CCSPlayerPawn(victimEntity.Handle);
 
-            var attackerController = attackerPawn.Controller.Value != null
-                ? new CCSPlayerController(attackerPawn.Controller.Value.Handle)
-                : null;
-            var victimController = victimPawn.Controller.Value != null
-                ? new CCSPlayerController(victimPawn.Controller.Value.Handle)
-                : null;
+            var attackerControllerEntity = attackerPawn.Controller.Value;
+            var victimControllerEntity = victimPawn.Controller.Value;
 
-            if (attackerController == null || victimController == null)
+            if (attackerControllerEntity == null || victimControllerEntity == null)
                 return HookResult.Continue;
 
-            if (attackerPawn.TeamNum != victimPawn.TeamNum || attackerController == victimController)
+            var attackerController = new CCSPlayerController(attackerControllerEntity.Handle);
+            var victimController = new CCSPlayerController(victimControllerEntity.Handle);
+
+            if (attackerController.TeamNum != victimController.TeamNum || attackerController == victimController)
                 return HookResult.Continue;
 
             string inflictorName = damageInfo.Inflictor?.Value?.DesignerName ?? "";
